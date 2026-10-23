@@ -1,0 +1,56 @@
+enrichment:
+  virustotal:
+    api_key: ""
+    rate_limit: 4
+  abuseipdb:
+    api_key: ""
+    rate_limit: 60
+  shodan:
+    api_key: ""
+    rate_limit: 1
+  otx:
+    api_key: ""
+    rate_limit: 100
+
+cache:
+  enabled: true
+  ttl_hours: 24
+  db_path: "~/.nshark/cache.db"
+
+geoip:
+  db_path: ""
+
+detection:
+  port_scan:
+    min_ports: 20
+    time_window_seconds: 60
+  brute_force:
+    min_attempts: 10
+    protocols:
+      - ssh
+      - ftp
+      - http
+  beaconing:
+    min_beacons: 10
+    jitter_tolerance: 0.15
+  dns_tunneling:
+    entropy_threshold: 3.5
+    min_query_length: 30
+    min_txt_ratio: 0.3
+  exfiltration:
+    upload_ratio_threshold: 3.0
+    min_bytes: 1048576
+  cleartext_creds:
+    protocols:
+      - http
+      - ftp
+      - telnet
+      - smtp
+
+reporting:
+  default_format: "console"
+  min_confidence: 70
+  show_timeline: true
+  show_geo: true
+
+workers: 5
