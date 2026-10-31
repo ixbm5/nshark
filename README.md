@@ -13,18 +13,34 @@ Fast CLI packet analyzer for threat hunting, CTF triage, and incident response. 
 
 ## Install
 
-Works on **Linux (Kali/Ubuntu), macOS, and Windows**:
+### 1-Line Install (macOS & Linux)
 
 ```bash
-pipx install git+https://github.com/ixbm5/nshark.git
+curl -sSL https://raw.githubusercontent.com/ixbm5/nshark/main/install.sh | bash
 ```
 
-Or install from source:
+---
+
+### From Source
 
 ```bash
 git clone https://github.com/ixbm5/nshark.git && cd nshark
-pip install .
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
+
+---
+
+### Using pipx
+
+```bash
+# If pipx is not installed on your system:
+# macOS:   brew install pipx && pipx ensurepath
+# Linux:   sudo apt install pipx && pipx ensurepath
+
+pipx install git+https://github.com/ixbm5/nshark.git
+```
+
 
 ## Quick Start
 
