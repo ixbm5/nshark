@@ -204,18 +204,29 @@ def parse_pcap(pcap_path: str, bpf_filter: Optional[str] = None) -> list[ParsedP
                 raise
         else:
             with PcapReader(pcap_path) as reader:
-                for idx, pkt in enumerate(reader):
+                idx = 0
+                while True:
+                    try:
+                        pkt = reader.read_packet()
+                    except EOFError:
+                        break
+                    except Exception as exc:
+                        logger.warning("Stopping at truncated/corrupted frame #%d in %s: %s", idx, pcap_path, exc)
+                        break
+                    if pkt is None:
+                        break
                     try:
                         parsed = _convert_packet(pkt)
                         if parsed is not None:
                             parsed_packets.append(parsed)
                     except Exception as exc:
                         logger.warning("Skipping malformed packet #%d: %s", idx, exc)
+                    idx += 1
     except (FileNotFoundError, ValueError):
         raise
     except Exception as exc:
-        logger.error("Failed to read PCAP %s: %s", pcap_path, exc)
-        raise
+        logger.warning("Unable to parse PCAP header in %s: %s", pcap_path, exc)
+        return parsed_packets
 
     parsed_packets.sort(key=lambda p: p.timestamp)
     logger.info("Parsed %d IP/ARP packets from %s", len(parsed_packets), pcap_path)

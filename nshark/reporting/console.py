@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from rich.console import Console
+from rich.markup import escape as escape_markup
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -12,6 +14,16 @@ from rich.text import Text
 from nshark import __version__
 from nshark.core.models import AnalysisReport, Flow, ParsedPacket, Severity
 from nshark.enrichment import format_enrichment_result
+
+_ANSI_AND_CTRL_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def sanitize_terminal_str(value: str) -> str:
+    """Strip ANSI/OSC escape sequences and non-printable control bytes from untrusted packet strings."""
+    if not value:
+        return ""
+    return _ANSI_AND_CTRL_RE.sub("", value)
+
 
 SEVERITY_COLORS: dict[Severity, str] = {
     Severity.CRITICAL: "bold #ff0055",
@@ -117,7 +129,7 @@ def print_report(
                 Text(alert.detection_type.value.replace("_", " ").title(), style="bold bright_white"),
                 target_txt,
                 Text(mitre_str, style="bold bright_magenta"),
-                alert.description,
+                Text(sanitize_terminal_str(alert.description)),
             )
         console.print(alert_table)
     else:
@@ -442,9 +454,10 @@ def print_report(
                 if ev.source_ip and ev.destination_ip
                 else ""
             )
+            safe_desc = escape_markup(sanitize_terminal_str(ev.description))
             console.print(
                 f"  [dim]{ts_str}[/] [bright_cyan](+{delta_s:>5.1f}s)[/]  "
                 f"[bright_cyan]{branch}[/] [{sev_style}][{ev.severity.value.upper()}][/] "
-                f"{flow_str}{ev.description}"
+                f"{flow_str}{safe_desc}"
             )
     console.print()

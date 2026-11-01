@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import gzip
 import hashlib
 import logging
 import os
@@ -67,6 +66,16 @@ SKIP_TEXT_TYPES = {
     "application/xml",
     "application/xhtml+xml",
 }
+
+
+MAX_DECOMPRESSED_BYTES = 50 * 1024 * 1024  # 50 MB cap against zip/gzip bombs
+
+
+def _safe_decompress(data: bytes, wbits: int, max_bytes: int = MAX_DECOMPRESSED_BYTES) -> bytes:
+    """Decompress gzip/deflate bytes with a strict upper memory bound to prevent decompression bombs."""
+    decomp = zlib.decompressobj(wbits)
+    out = decomp.decompress(data, max_bytes)
+    return out if out else data
 
 
 def _decode_chunked(data: bytes) -> bytes:
@@ -401,6 +410,9 @@ def carve_files(
                 if any(seg[0] > 0 for seg in cont_segments):
                     cont_segments.sort(key=lambda seg: (seg[0], seg[1]))
                 for _, _, seg_bytes in cont_segments:
+                    if len(body) + len(seg_bytes) > MAX_DECOMPRESSED_BYTES:
+                        body.extend(seg_bytes[: max(0, MAX_DECOMPRESSED_BYTES - len(body))])
+                        break
                     body.extend(seg_bytes)
 
                 if len(body) < 32:
@@ -424,20 +436,17 @@ def carve_files(
                     is_explicit_gz_file = last_requested_name.lower().endswith((".gz", ".tgz"))
                     if content_enc == "gzip" or not is_explicit_gz_file:
                         try:
-                            body_bytes = gzip.decompress(body_bytes)
+                            body_bytes = _safe_decompress(body_bytes, 16 + zlib.MAX_WBITS)
                         except Exception:
-                            try:
-                                d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-                                decompressed = d.decompress(body_bytes)
-                                if decompressed:
-                                    body_bytes = decompressed
-                            except Exception:
-                                pass
+                            pass
                 elif content_enc == "deflate":
                     try:
-                        body_bytes = zlib.decompress(body_bytes)
+                        body_bytes = _safe_decompress(body_bytes, zlib.MAX_WBITS)
                     except Exception:
-                        pass
+                        try:
+                            body_bytes = _safe_decompress(body_bytes, -zlib.MAX_WBITS)
+                        except Exception:
+                            pass
 
                 if len(body_bytes) < 32:
                     continue
