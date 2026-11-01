@@ -591,8 +591,6 @@ def test_llmnr_poisoning_icmp_tunnel_and_extended_creds() -> None:
 
 
 def test_multi_protocol_file_carving_and_ioc_hashes(tmp_path) -> None:
-    from nshark.extractors.ioc_extractor import extract_iocs
-
     base_ts = datetime(2026, 1, 2, 10, 0, 0)
     # 1. SMB2 CREATE ("implant.exe") + SMB2 WRITE (MZ PE payload)
     fn_utf16 = "implant.exe".encode("utf-16le")
@@ -879,6 +877,7 @@ def test_security_audit_path_traversal_and_offline_integrity(tmp_path) -> None:
 
 def test_usability_config_direct_pcap_and_rich_enrichment(tmp_path) -> None:
     """Verify CLI usability: direct `nshark <pcap>`, `nshark config`, URL/hash normalization, and rich VT formatting."""
+    import os
     from click.testing import CliRunner
     from scapy.all import Ether, IP, TCP, wrpcap  # type: ignore[import-untyped]
     from nshark.cli import cli, _normalize_target_to_ioc, _save_env_keys
@@ -933,3 +932,66 @@ def test_usability_config_direct_pcap_and_rich_enrichment(tmp_path) -> None:
     _save_env_keys({"VT_API_KEY": "test_dummy_key_1234"}, env_path=env_file)
     with open(env_file, "r", encoding="utf-8") as fh:
         assert "VT_API_KEY=test_dummy_key_1234" in fh.read()
+    assert (os.stat(env_file).st_mode & 0o777) == 0o600
+
+    # 5. Verify `nshark config --vt <KEY>` rejects CLI argument secrets (must use prompt/stdin/env)
+    bad_res = runner.invoke(cli, ["config", "--vt", "leaked_cli_secret"])
+    assert bad_res.exit_code != 0
+
+
+def test_malformed_and_truncated_pcaps(tmp_path) -> None:
+    """Verify parser and detectors handle empty, random-garbage, and mid-frame truncated PCAPs gracefully."""
+    from nshark.core.parser import parse_pcap
+
+    # 1. Empty 0-byte file
+    empty_pcap = str(tmp_path / "empty.pcap")
+    with open(empty_pcap, "wb") as fh:
+        fh.write(b"")
+    assert parse_pcap(empty_pcap) == []
+
+    # 2. Random non-PCAP garbage bytes
+    garbage_pcap = str(tmp_path / "garbage.pcap")
+    with open(garbage_pcap, "wb") as fh:
+        fh.write(b"\xde\xad\xbe\xef\x00\xff\x13\x37" * 32)
+    assert parse_pcap(garbage_pcap) == []
+
+    # 3. Valid global PCAP header (24 bytes) followed by a truncated packet header / frame
+    trunc_pcap = str(tmp_path / "truncated.pcap")
+    pcap_global_hdr = b"\xd4\xc3\xb2\xa1\x02\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00\x01\x00\x00\x00"
+    truncated_pkt_hdr = b"\x01\x02\x03\x04\x00\x00\x00\x00\x40\x00\x00\x00\x40\x00\x00\x00\xff\xff\xff"
+    with open(trunc_pcap, "wb") as fh:
+        fh.write(pcap_global_hdr + truncated_pkt_hdr)
+    # Should not raise an unhandled exception
+    pkts = parse_pcap(trunc_pcap)
+    assert isinstance(pkts, list)
+
+    # 4. Bounded gzip decompression (gzip bomb protection)
+    import gzip
+    import zlib
+    from nshark.extractors.file_carver import _safe_decompress
+
+    compressed_bomb = gzip.compress(b"A" * 500_000)
+    capped = _safe_decompress(compressed_bomb, 16 + zlib.MAX_WBITS, max_bytes=4096)
+    assert len(capped) == 4096
+
+    # 5. Terminal ANSI / OSC escape sequence sanitization
+    from nshark.reporting.console import sanitize_terminal_str
+
+    dirty = "GET /\x1b[2J\x1b]52;c;dGVzdA==\x07evil\x00path HTTP/1.1"
+    assert sanitize_terminal_str(dirty) == "GET /evilpath HTTP/1.1"
+
+    # 6. Export alerts CSV (`nshark export <pcap> --format csv --type alerts -o alerts.csv`)
+    from click.testing import CliRunner
+    from nshark.cli import cli
+
+    alerts_csv = str(tmp_path / "alerts.csv")
+    runner = CliRunner()
+    exp_res = runner.invoke(cli, ["-q", "export", "samples/demo_attack.pcap", "--format", "csv", "--type", "alerts", "-o", alerts_csv])
+    assert exp_res.exit_code == 0
+    with open(alerts_csv, "r", encoding="utf-8") as fh:
+        csv_text = fh.read()
+    assert "detection_type,severity,confidence" in csv_text
+    assert "T1190" in csv_text
+
+
+
