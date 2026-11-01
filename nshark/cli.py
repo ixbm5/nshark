@@ -31,7 +31,7 @@ from nshark.enrichment import (
     format_enrichment_result,
 )
 from nshark.enrichment.base import mask_api_key
-from nshark.exporters.csv_export import export_csv
+from nshark.exporters.csv_export import export_alerts_csv, export_csv
 from nshark.exporters.misp import export_misp, save_misp
 from nshark.exporters.stix import export_stix, save_stix
 from nshark.extractors.dns_logger import extract_dns_timeline
@@ -220,7 +220,7 @@ GLOBAL OPTIONS:
 EXAMPLES:
   nshark capture.pcap
   nshark analyze capture.pcap --enrich
-  nshark config --vt <YOUR_VT_API_KEY>
+  nshark config --vt
   nshark enrich 8.8.8.8
   nshark hashes capture.pcap -o hashes.txt
 """
@@ -414,7 +414,7 @@ def analyze_cmd(
         if not hub_check.providers:
             enrich_status = (
                 "[yellow][!] --enrich requested, but no Threat Intel API keys are configured. "
-                "Run: [bold bright_white]nshark config --vt <YOUR_API_KEY>[/][/]"
+                "Run: [bold bright_white]nshark config --vt[/] (or set VT_API_KEY)[/]"
             )
         elif not enrichment_results:
             enrich_status = (
@@ -510,7 +510,7 @@ def iocs_cmd(ctx: click.Context, pcap: str, ioc_types: Optional[str], enrich: bo
         if not hub_check.providers:
             console.print(
                 "[yellow][!] --enrich requested, but no Threat Intel API keys are configured. "
-                "Run: [bold bright_white]nshark config --vt <YOUR_API_KEY>[/][/]"
+                "Run: [bold bright_white]nshark config --vt[/] (or set VT_API_KEY)[/]"
             )
         elif not enrichment_results:
             console.print(
@@ -539,7 +539,7 @@ def carve_cmd(ctx: click.Context, pcap: str, output_dir: str, hash_check: bool) 
     if hash_check and not vt_key:
         console.print(
             "[yellow][!] --hash-check requested, but no VirusTotal API key is configured. "
-            "Run: [bold bright_white]nshark config --vt <YOUR_API_KEY>[/][/]"
+            "Run: [bold bright_white]nshark config --vt[/] (or set VT_API_KEY)[/]"
         )
 
     table = Table(title=f"[*] Carved Files ({len(carved)})", header_style="bold bright_cyan", show_lines=True, expand=True)
@@ -687,9 +687,9 @@ def enrich_cmd(
     if not hub.providers:
         console.print("[bold yellow][!] No Threat Intel API keys are configured.[/]")
         console.print(
-            "    Save your key once (works from any folder):\n"
-            "      [bold bright_cyan]nshark config --vt <YOUR_VIRUSTOTAL_API_KEY>[/]\n"
-            "      [dim]nshark config --abuseipdb <KEY> --shodan <KEY> --otx <KEY>[/]"
+            "    Configure your API key securely (hidden prompt or environment variable):\n"
+            "      [bold bright_cyan]nshark config --vt[/]\n"
+            "      [dim]nshark config --abuseipdb --shodan --otx[/]"
         )
         return
 
@@ -721,7 +721,16 @@ def enrich_cmd(
     console.print(table)
 
 
-@cli.command("export", epilog="\b\nExamples:\n  nshark export capture.pcap --format stix -o iocs.json\n  nshark export capture.pcap --format misp -o event.json\n  nshark export capture.pcap --format csv -o iocs.csv")
+@cli.command(
+    "export",
+    epilog=(
+        "\b\nExamples:\n"
+        "  nshark export capture.pcap --format stix -o iocs.json\n"
+        "  nshark export capture.pcap --format misp -o event.json\n"
+        "  nshark export capture.pcap --format csv -o iocs.csv\n"
+        "  nshark export capture.pcap --format csv --type alerts -o alerts.csv"
+    ),
+)
 @click.argument("pcap", type=click.Path(exists=True))
 @click.option(
     "--format",
@@ -730,10 +739,18 @@ def enrich_cmd(
     default="stix",
     help="Export format (stix, csv, misp).",
 )
+@click.option(
+    "--type",
+    "export_type",
+    type=click.Choice(["iocs", "alerts"], case_sensitive=False),
+    default="iocs",
+    show_default=True,
+    help="What to export for CSV format: 'iocs' (indicators) or 'alerts' (detections table).",
+)
 @click.option("-o", "--output", type=click.Path(), required=True, help="Output file path.")
 @click.pass_context
-def export_cmd(ctx: click.Context, pcap: str, export_format: str, output: str) -> None:
-    """Export extracted IOCs and detections in STIX 2.1, CSV, or MISP format."""
+def export_cmd(ctx: click.Context, pcap: str, export_format: str, export_type: str, output: str) -> None:
+    """Export extracted IOCs or detection alerts in STIX 2.1, CSV, or MISP format."""
     cfg = ctx.obj["config"]
     if not ctx.obj.get("no_banner", False):
         print_banner(console, config=cfg, animate=True)
@@ -747,18 +764,25 @@ def export_cmd(ctx: click.Context, pcap: str, export_format: str, output: str) -
         for det_cls in ALL_DETECTORS:
             alerts.extend(det_cls().analyze(packets, flows, cfg))
         alerts = map_all(alerts)
+        scored_alerts = ScoringEngine().score_and_correlate(alerts)
 
         fmt = export_format.lower()
+        exp_kind = export_type.lower()
         if fmt == "stix":
-            bundle = export_stix(iocs, alerts)
+            bundle = export_stix(iocs, scored_alerts)
             save_stix(bundle, output)
+            console.print(f"[green][+] Exported {len(iocs)} IOCs and {len(scored_alerts)} alerts (STIX 2.1) to {output}[/]")
         elif fmt == "csv":
-            export_csv(iocs, output)
+            if exp_kind == "alerts":
+                export_alerts_csv(scored_alerts, output)
+                console.print(f"[green][+] Exported {len(scored_alerts)} detection alerts (CSV) to {output}[/]")
+            else:
+                export_csv(iocs, output)
+                console.print(f"[green][+] Exported {len(iocs)} IOCs (CSV) to {output}[/]")
         elif fmt == "misp":
             event = export_misp(iocs, event_info=f"NSHARK Triage: {os.path.basename(pcap)}")
             save_misp(event, output)
-
-    console.print(f"[green][+] Exported {len(iocs)} IOCs ({fmt.upper()}) to {output}[/]")
+            console.print(f"[green][+] Exported {len(iocs)} IOCs (MISP) to {output}[/]")
 
 
 @cli.command("dns", epilog="\b\nExamples:\n  nshark dns capture.pcap\n  nshark dns capture.pcap --suspicious-only")
@@ -943,11 +967,15 @@ def hosts_cmd(ctx: click.Context, pcap: str) -> None:
 
 
 def _save_env_keys(updates: dict[str, str], env_path: Optional[str] = None) -> str:
-    """Save or update API keys in ~/.nshark/.env with 0600 permissions."""
+    """Save or update API keys in ~/.nshark/.env with strict 0600 permissions."""
     target_path = env_path or os.path.expanduser("~/.nshark/.env")
     target_dir = os.path.dirname(target_path)
     if target_dir:
         os.makedirs(target_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(target_dir, 0o700)
+        except OSError:
+            pass
 
     existing: dict[str, str] = {}
     if os.path.isfile(target_path):
@@ -965,7 +993,8 @@ def _save_env_keys(updates: dict[str, str], env_path: Optional[str] = None) -> s
         existing[k] = v.strip()
         os.environ[k] = v.strip()
 
-    with open(target_path, "w", encoding="utf-8") as fh:
+    fd = os.open(target_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         for k, v in existing.items():
             fh.write(f"{k}={v}\n")
 
@@ -980,44 +1009,47 @@ def _save_env_keys(updates: dict[str, str], env_path: Optional[str] = None) -> s
     "config",
     epilog=(
         "\b\nExamples:\n"
-        "  nshark config --vt <YOUR_VIRUSTOTAL_KEY>\n"
-        "  nshark config --abuseipdb <KEY> --shodan <KEY> --otx <KEY>\n"
+        "  nshark config --vt\n"
+        "  nshark config --abuseipdb --shodan --otx\n"
         "  nshark config\n"
         "  nshark config --clear-cache\n"
         "  nshark config --reset"
     ),
 )
-@click.option("--vt", "vt_key", default=None, help="Save VirusTotal API v3 key to ~/.nshark/.env.")
-@click.option("--abuseipdb", "abuse_key", default=None, help="Save AbuseIPDB API v2 key to ~/.nshark/.env.")
-@click.option("--shodan", "shodan_key", default=None, help="Save Shodan API key to ~/.nshark/.env.")
-@click.option("--otx", "otx_key", default=None, help="Save AlienVault OTX API key to ~/.nshark/.env.")
+@click.option("--vt", "set_vt", is_flag=True, help="Prompt securely for VirusTotal API v3 key (saved to ~/.nshark/.env).")
+@click.option("--abuseipdb", "set_abuse", is_flag=True, help="Prompt securely for AbuseIPDB API v2 key (saved to ~/.nshark/.env).")
+@click.option("--shodan", "set_shodan", is_flag=True, help="Prompt securely for Shodan API key (saved to ~/.nshark/.env).")
+@click.option("--otx", "set_otx", is_flag=True, help="Prompt securely for AlienVault OTX API key (saved to ~/.nshark/.env).")
 @click.option("--clear-cache", is_flag=True, help="Clear local SQLite Threat Intel cache (~/.nshark/cache.db).")
 @click.option("--reset", is_flag=True, help="Write default config.yaml template in current directory.")
 @click.pass_context
 def config_cmd(
     ctx: click.Context,
-    vt_key: Optional[str],
-    abuse_key: Optional[str],
-    shodan_key: Optional[str],
-    otx_key: Optional[str],
+    set_vt: bool,
+    set_abuse: bool,
+    set_shodan: bool,
+    set_otx: bool,
     clear_cache: bool,
     reset: bool,
 ) -> None:
-    """Configure Threat Intel API keys globally (~/.nshark/.env) or view feed status."""
+    """Configure Threat Intel API keys securely (~/.nshark/.env, mode 0600) or view feed status."""
     updates: dict[str, str] = {}
-    if vt_key is not None:
-        updates["VT_API_KEY"] = vt_key
-    if abuse_key is not None:
-        updates["ABUSEIPDB_KEY"] = abuse_key
-    if shodan_key is not None:
-        updates["SHODAN_API_KEY"] = shodan_key
-    if otx_key is not None:
-        updates["OTX_API_KEY"] = otx_key
+    prompt_targets = [
+        (set_vt, "VT_API_KEY", "VirusTotal API v3 Key"),
+        (set_abuse, "ABUSEIPDB_KEY", "AbuseIPDB API v2 Key"),
+        (set_shodan, "SHODAN_API_KEY", "Shodan API Key"),
+        (set_otx, "OTX_API_KEY", "AlienVault OTX API Key"),
+    ]
+    for enabled, env_var, label in prompt_targets:
+        if enabled:
+            val = click.prompt(f"Enter {label} (input hidden)", hide_input=True, default="", show_default=False).strip()
+            if val:
+                updates[env_var] = val
 
     if updates:
         saved_path = _save_env_keys(updates)
         ctx.obj["config"] = load_config()
-        console.print(f"[bold green][+] Saved {len(updates)} API key(s) globally to {saved_path}[/]")
+        console.print(f"[bold green][+] Saved {len(updates)} API key(s) to {saved_path} (permissions: 0600)[/]")
 
     if clear_cache:
         cfg = ctx.obj["config"]
@@ -1046,7 +1078,7 @@ def config_cmd(
     ]
 
     table = Table(
-        title="[*] NSHARK Threat Intelligence Feeds (Global ~/.nshark/.env)",
+        title="[*] NSHARK Threat Intelligence Feeds (Global ~/.nshark/.env · mode 0600)",
         header_style="bold bright_cyan",
         show_lines=True,
         expand=True,
@@ -1057,7 +1089,7 @@ def config_cmd(
     table.add_column("Supported Indicators", ratio=1)
     table.add_column("Setup Command", ratio=1)
 
-    for label, cfg_key, _env_var, cli_flag, supported in feeds:
+    for label, cfg_key, env_var, cli_flag, supported in feeds:
         key_val = str(enrich_cfg.get(cfg_key, {}).get("api_key", "")).strip()
         if key_val:
             status = "[bold bright_green]● ACTIVE[/]"
@@ -1065,7 +1097,7 @@ def config_cmd(
         else:
             status = "[dim]○ NOT SET[/]"
             masked = "-"
-        table.add_row(label, status, masked, supported, f"nshark config {cli_flag} <KEY>")
+        table.add_row(label, status, masked, supported, f"nshark config {cli_flag}  (or ${env_var})")
 
     console.print(table)
 
@@ -1075,7 +1107,7 @@ def config_cmd(
 @click.pass_context
 def help_cmd(ctx: click.Context, command: Optional[str]) -> None:
     """Show help for NSHARK or a single command."""
-    parent = ctx.parent
+    parent = ctx.parent or ctx
     if command:
         sub = cli.get_command(parent, command)
         if sub is None:
