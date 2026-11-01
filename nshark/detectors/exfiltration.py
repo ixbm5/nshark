@@ -54,9 +54,8 @@ class ExfiltrationDetector(BaseDetector):
             pair_sent[key] += flow.bytes_sent
             pair_recv[key] += flow.bytes_received
             pair_ports[key].add(flow.dst_port)
-            if key not in pair_first_ts or (
-                flow.start_time and pair_first_ts[key] and flow.start_time < pair_first_ts[key]
-            ):
+            prev_ts = pair_first_ts.get(key)
+            if flow.start_time is not None and (prev_ts is None or flow.start_time < prev_ts):
                 pair_first_ts[key] = flow.start_time
 
         # Compute session-wide baseline of outbound volume per pair

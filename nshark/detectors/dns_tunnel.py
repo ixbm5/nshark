@@ -297,7 +297,7 @@ class DNSTunnelDetector(BaseDetector):
             mx_count = sum(1 for _, _, qt, _ in qlist if qt == "MX")
             unique_subs = len({sub for _, sub, _, _ in qlist})
             long_high_ent_count = sum(
-                1 for e, l in zip(entropies, lengths) if e >= entropy_thresh and l >= 40
+                1 for e, length in zip(entropies, lengths) if e >= entropy_thresh and length >= 40
             )
 
             avg_entropy = sum(entropies) / len(entropies)

@@ -254,7 +254,7 @@ def parse_ssh_kexinit(payload: bytes) -> Optional[dict[str, str]]:
 
     try:
         pkt_len = struct.unpack("!I", data[:4])[0]
-        pad_len = data[4]
+        _pad_len = data[4]
         msg_code = data[5]
         if msg_code != 20 or pkt_len < 22 or pkt_len > 32768:
             return None

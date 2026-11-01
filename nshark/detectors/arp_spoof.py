@@ -106,7 +106,7 @@ class ARPSpoofDetector(BaseDetector):
                         severity=Severity.CRITICAL,
                         confidence=94,
                         source_ip=ip_addr,
-                        destination_ip=None,
+                        destination_ip="",
                         description=(
                             f"ARP Cache Poisoning: IP {ip_addr} claimed by {len(mac_list)} "
                             f"different MAC addresses ({', '.join(mac_list)})"

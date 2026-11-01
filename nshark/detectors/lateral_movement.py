@@ -533,9 +533,9 @@ class LateralMovementDetector(BaseDetector):
                 )
 
         # Emit Multi-Host NTLM Pass-the-Hash Spraying
-        for client_ip, targets in ntlm_targets_by_client.items():
-            if len(targets) >= 3:
-                sorted_targets = sorted(targets)
+        for client_ip, target_set in ntlm_targets_by_client.items():
+            if len(target_set) >= 3:
+                sorted_targets = sorted(target_set)
                 alerts.append(
                     Alert(
                         detection_type=self.detection_type,

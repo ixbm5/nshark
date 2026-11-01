@@ -7,7 +7,6 @@ import sys
 import time
 from typing import Any, Optional
 
-from rich.columns import Columns
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -119,7 +118,7 @@ def build_banner(config: Optional[dict[str, Any]] = None, include_shark: bool = 
         Text("  ─────────────────────────────────", style="dim cyan"),
         Text.assemble(
             ("  [DET] ", "bold bright_cyan"),
-            ("12 Behavioral Modules", "bright_white"),
+            ("Recon · Auth · C2 · Exfil · AD", "bright_white"),
         ),
         Text.assemble(
             ("  [EXT] ", "bold bright_cyan"),
