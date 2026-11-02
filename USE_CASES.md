@@ -16,7 +16,7 @@ Quick navigation:
 Just pass a `.pcap` or `.pcapng` file directly (or use `nshark analyze`):
 
 ```bash
-# Instant triage (automatically runs all 12 behavioral detectors)
+# Instant triage (runs behavioral and protocol detectors across the capture)
 nshark capture.pcap
 
 # Same command with Threat Intel reputation checks enabled
@@ -54,15 +54,15 @@ nshark analyze capture.pcap --report json -o report.json
 
 ## 2. Threat Intel Setup & Enrichment
 
-### Step 1: Save Your API Key Once (Works From Any Folder)
-You don't need to create `.env` files in every directory. Configure your keys once and NSHARK stores them in `~/.nshark/.env` (`0600` permissions):
+### Step 1: Save Your API Key Securely (Works From Any Folder)
+Configure your keys once via an interactive hidden prompt (or environment variables) so secrets never appear in your shell history (`~/.zsh_history`) or process table (`ps aux`). NSHARK stores them in `~/.nshark/.env` with strict `0600` permissions:
 
 ```bash
-# Save your VirusTotal API key globally
-nshark config --vt <YOUR_VT_API_KEY>
+# Prompt securely for your VirusTotal API key (input hidden)
+nshark config --vt
 
-# Optionally add AbuseIPDB, Shodan, or AlienVault OTX
-nshark config --abuseipdb <KEY> --shodan <KEY> --otx <KEY>
+# Optionally prompt for AbuseIPDB, Shodan, or AlienVault OTX
+nshark config --abuseipdb --shodan --otx
 
 # Check which Threat Intel feeds are active
 nshark config
@@ -70,17 +70,17 @@ nshark config
 
 **Expected Output (`nshark config`):**
 ```text
-                         [*] NSHARK Threat Intelligence Feeds (Global ~/.nshark/.env)                         
+                   [*] NSHARK Threat Intelligence Feeds (Global ~/.nshark/.env · mode 0600)                   
 ┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Provider        ┃ Status   ┃ Configured Key ┃ Supported Indicators              ┃ Setup Command            ┃
 ┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ VirusTotal v3   │ ● ACTIVE │ ****9f2a       │ IPs, Domains, File SHA-256/MD5    │ nshark config --vt <KEY> │
+│ VirusTotal v3   │ ● ACTIVE │ ****9f2a       │ IPs, Domains, File SHA-256/MD5    │ nshark config --vt       │
 ├─────────────────┼──────────┼────────────────┼───────────────────────────────────┼──────────────────────────┤
 │ AbuseIPDB v2    │ ○ NOT SET│ -              │ Public IPv4/IPv6 Reputation       │ nshark config --abuseip… │
 ├─────────────────┼──────────┼────────────────┼───────────────────────────────────┼──────────────────────────┤
-│ Shodan          │ ○ NOT SET│ -              │ Open Ports, Banners, CVEs         │ nshark config --shodan … │
+│ Shodan          │ ○ NOT SET│ -              │ Open Ports, Banners, CVEs         │ nshark config --shodan   │
 ├─────────────────┼──────────┼────────────────┼───────────────────────────────────┼──────────────────────────┤
-│ AlienVault OTX  │ ● ACTIVE │ ****3c10       │ IPs, Domains, File Hashes, Pulses │ nshark config --otx <KEY>│
+│ AlienVault OTX  │ ● ACTIVE │ ****3c10       │ IPs, Domains, File Hashes, Pulses │ nshark config --otx      │
 └─────────────────┴──────────┴────────────────┴───────────────────────────────────┴──────────────────────────┘
 ```
 
